@@ -11,64 +11,58 @@ let day=1,type='cat',weatherLayer=null,labelsLayer=null,stateLabelsLayer=null,ac
 const US_BOUNDS=[[24.5,-125],[49.6,-66.5]];
 const STATES=[['WA',47.4,-120.7],['OR',43.9,-120.5],['CA',36.8,-119.4],['NV',39.2,-116.7],['ID',44.3,-114.4],['MT',47,-109.6],['WY',43,-107.6],['UT',39.3,-111.8],['AZ',34.2,-111.7],['NM',34.5,-106],['CO',39,-105.5],['ND',47.5,-100.5],['SD',44.4,-100.2],['NE',41.6,-99.7],['KS',38.5,-98.3],['OK',35.6,-97.3],['TX',31.1,-99.1],['MN',46,-94.5],['IA',42.2,-93.5],['MO',38.5,-92.4],['AR',34.8,-92.3],['LA',31,-92.3],['WI',44.6,-89.8],['IL',40,-89.1],['MI',44.3,-85.5],['IN',40,-86.2],['OH',40.3,-82.8],['KY',37.7,-85.3],['TN',35.8,-86],['MS',32.6,-89.8],['AL',32.8,-86.8],['GA',32.5,-83.4],['FL',28.1,-82],['SC',33.8,-80.9],['NC',35.6,-79.9],['VA',37.6,-78.9],['WV',38.7,-80.5],['PA',40.9,-77.8],['NY',42.7,-75.5],['VT',44,-72.7],['NH',43.8,-71.6],['ME',45.2,-69.1],['MA',42.3,-71.7],['CT',41.6,-72.7],['RI',41.5,-71.5],['NJ',40.1,-74.5],['DE',39,-75.4],['MD',39,-76.7]];
 function defaultView(){map.stop();map.fitBounds(US_BOUNDS,{animate:false,padding:[18,18]});}
-// Labels are rendered in a single screen-positioned SVG overlay, independent
-// of Leaflet marker panes. This prevents pane/layer ordering hiding labels.
-let labelSvg;
+// Labels are geographic Leaflet markers: Leaflet moves them with the map,
+// including during pinch/scroll zoom, so they cannot drift on screen.
+let labelMarkers=[];
+function clearLabels(){for(const m of labelMarkers)map.removeLayer(m);labelMarkers=[];}
 function renderLabels(){
- if(!labelSvg)return;
- const {x:w,y:h}=map.getSize();
- if(!w||!h)return;
- labelSvg.setAttribute('viewBox',`0 0 ${w} ${h}`);
- labelSvg.replaceChildren();
- const ns='http://www.w3.org/2000/svg';
- const el=(tag,attrs)=>{const n=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);labelSvg.appendChild(n);return n};
- const z=map.getZoom(), wide=z<5, cityFont=wide?15:Math.min(23,17+(z-5)*2), stateFont=wide?19:23;
+ if(map._animatingZoom||map._panAnim?._inProgress)return;
+ clearLabels();
+ const sz=map.getSize(),z=map.getZoom();
+ if(!sz.x||!sz.y)return;
  const occupied=[];
- const collides=(x,y,ww,hh)=>occupied.some(r=>x<r.x+r.w+4&&x+ww>r.x-4&&y<r.y+r.h+4&&y+hh>r.y-4);
- const keep=(x,y,ww,hh)=>occupied.push({x,y,w:ww,h:hh});
- const outline={'paint-order':'stroke fill',stroke:'#02050a','stroke-width':'4.5','stroke-linejoin':'round'};
- // City text is on top, and is laid out BEFORE state abbreviations.
- // At national scale keep larger cities; zooming in reveals additional local cities.
+ const collides=(x,y,w,h)=>occupied.some(r=>x<r.x+r.w+5&&x+w>r.x-5&&y<r.y+r.h+5&&y+h>r.y-5);
+ const addOcc=(x,y,w,h)=>occupied.push({x,y,w,h});
  const minPriority=z<4.4?9:z<5.15?8:z<5.8?7:6;
- const candidates=CITIES.filter(c=>c[3]>=minPriority).map(c=>({c,p:map.latLngToContainerPoint([c[1],c[2]])})).filter(o=>o.p.x>=12&&o.p.x<w-12&&o.p.y>=104&&o.p.y<h-86);
+ const cityFont=z<5?16:z<6?18:20;
+ const candidates=CITIES.filter(c=>c[3]>=minPriority).map(c=>({c,p:map.latLngToContainerPoint([c[1],c[2]])})).filter(({p})=>p.x>18&&p.x<sz.x-18&&p.y>95&&p.y<sz.y-85);
  candidates.sort((a,b)=>b.c[3]-a.c[3]||a.c[0].localeCompare(b.c[0]));
  for(const {c,p} of candidates){
-  const label=c[0],tw=label.length*cityFont*.59;
-  // Right-side labels normally; flip to left when approaching the right edge.
-  const left=p.x+tw+18>w-12,tx=left?p.x-11:p.x+10;
-  const x=left?tx-tw:tx,y=p.y-cityFont*.58;
-  if(x<4||x+tw>w-4||collides(x-7,y-5,tw+16,cityFont+12))continue;
-  el('circle',{cx:p.x,cy:p.y,r:3.7,fill:'#fff',stroke:'#02050a','stroke-width':'1.5'});
-  el('text',{x:tx,y:p.y+1,'text-anchor':left?'end':'start','dominant-baseline':'middle',fill:'#fff','font-size':cityFont,'font-family':'Arial, sans-serif','font-weight':'800',...outline}).textContent=label;
-  keep(x-7,y-5,tw+16,cityFont+12);
+  const width=Math.ceil(c[0].length*cityFont*.59)+19,height=cityFont+12;
+  let x=p.x+8;if(x+width>sz.x-8)x=p.x-width-8;
+  const y=p.y-height/2;
+  if(x<4||collides(x,y,width,height))continue;
+  const icon=L.divIcon({className:'gwc-geocity',html:`<span class="gwc-city-dot"></span><span class="gwc-geo-city-name">${c[0]}</span>`,iconSize:[width,height],iconAnchor:[p.x-x,height/2]});
+  labelMarkers.push(L.marker([c[1],c[2]],{icon,interactive:false,keyboard:false,pane:'gwcLabelPane'}).addTo(map));
+  addOcc(x,y,width,height);
  }
- // Two-letter state codes stay present at all zoom levels. Never place
- // them over city names, avoiding the all-labels-disappear issue.
+ const stateFont=z<5?21:24;
  for(const [abbr,lat,lon] of STATES){
-  const p=map.latLngToContainerPoint([lat,lon]);
-  if(p.x<24||p.x>w-24||p.y<105||p.y>h-86)continue;
-  if(wide&&['RI','CT','NJ','DE','MD','MA','NH','VT'].includes(abbr))continue;
-  const sw=stateFont*1.7,sh=stateFont*1.35,x=p.x-sw/2,y=p.y-sh/2;
-  if(collides(x,y,sw,sh))continue;
-  el('text',{x:p.x,y:p.y,'text-anchor':'middle','dominant-baseline':'middle',fill:'#d3dfed','font-size':stateFont,'font-family':'Arial, sans-serif','font-weight':'900',opacity:'.86',...outline}).textContent=abbr;
-  keep(x,y,sw,sh);
+  const pt=map.latLngToContainerPoint([lat,lon]);
+  if(pt.x<25||pt.x>sz.x-25||pt.y<100||pt.y>sz.y-85)continue;
+  if(z<5&&['RI','CT','NJ','DE','MD','MA','NH','VT'].includes(abbr))continue;
+  const w=48,h=32,x=pt.x-w/2,y=pt.y-h/2;
+  if(collides(x,y,w,h))continue;
+  const icon=L.divIcon({className:'gwc-geostate',html:`<span class="gwc-geo-state-name">${abbr}</span>`,iconSize:[w,h],iconAnchor:[w/2,h/2]});
+  labelMarkers.push(L.marker([lat,lon],{icon,interactive:false,keyboard:false,pane:'gwcLabelPane'}).addTo(map));
+  addOcc(x,y,w,h);
  }
 }
-
 const $=id=>document.getElementById(id);
-const map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:true,minZoom:3,maxZoom:11,zoomSnap:.25,worldCopyJump:false}).fitBounds(US_BOUNDS);
+const map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:true,minZoom:3,maxZoom:11,zoomSnap:.25,worldCopyJump:false,zoomAnimation:false,inertia:false}).fitBounds(US_BOUNDS);
 L.control.zoom({position:'topright'}).addTo(map);
-// SVG is above the polygons, but below the title and legend.
-labelSvg=document.createElementNS('http://www.w3.org/2000/svg','svg');
-labelSvg.id='gwc-map-labels';labelSvg.setAttribute('aria-hidden','true');
-$('map').parentElement.appendChild(labelSvg);
+map.createPane('gwcLabelPane');
+map.getPane('gwcLabelPane').style.zIndex='640';
+map.getPane('gwcLabelPane').style.pointerEvents='none';
+// Avoid endlessly recreating markers during gestures. Leaflet natively keeps
+// markers at the same geographic location while the map moves or scales.
+map.on('moveend zoomend resize',renderLabels);
+window.addEventListener('resize',()=>{map.invalidateSize();renderLabels()});
+map.whenReady(()=>{map.invalidateSize();renderLabels()});
 fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json')
  .then(r=>{if(!r.ok)throw Error('State outline download failed');return r.json()})
  .then(j=>L.geoJSON(j,{style:{color:'#d0d8e4',weight:1.1,opacity:.78,fillOpacity:0},interactive:false}).addTo(map))
  .catch(()=>{});
-map.on('move zoom resize',renderLabels);
-window.addEventListener('resize',()=>{map.invalidateSize();renderLabels()});
-map.whenReady(()=>{map.invalidateSize();renderLabels()});
 function nav(){ $('days').innerHTML='';for(let d=1;d<=8;d++){let b=document.createElement('button');b.textContent='DAY '+d;b.className=d===day?'active':'';b.setAttribute('aria-pressed',d===day);b.onclick=()=>{day=d;type=LAYERS[d][type]?'cat' in LAYERS[d]?'cat':'prob':d<=3?'cat':'prob';nav();load()};$('days').append(b)}$('hazards').innerHTML='';for(const [key,txt] of Object.entries(TYPES)){const b=document.createElement('button');b.textContent=txt;b.disabled=!LAYERS[day][key];b.className=key===type?'active':'';b.setAttribute('aria-pressed',key===type);b.onclick=()=>{type=key;nav();load()};$('hazards').append(b)}}
 function palette(){return type==='cat'?CATEGORY:PROB}
 function color(dn){let row=palette().find(e=>e[2]===dn);return row?row[1]:'#8fbbce'}
@@ -103,15 +97,15 @@ function zoomToRisk(features){
   if(combined.getEast()-combined.getWest()<30&&combined.getNorth()-combined.getSouth()<19)bb=combined;}}
  map.stop();map.fitBounds(bb.pad(.40),{animate:false,maxZoom:6.7,paddingTopLeft:[100,130],paddingBottomRight:[70,100]});
  // Prevent Leaflet fitBounds pushing beyond reasonable CONUS view.
- map.panInsideBounds(US_BOUNDS,{animate:false});
+ // Do not panInsideBounds here: it triggers a second visible jump after fitting.
  return true;
 }
-async function load(){let myId=++requestId;if(activeController)activeController.abort();activeController=new AbortController();const signal=activeController.signal;const lid=LAYERS[day][type];$('title').textContent=`DAY ${day} ${TYPES[type]} OUTLOOK`;$('eyebrow').textContent='GLOBAL WEATHER CENTER  /  STORM PREDICTION CENTER';$('issue').textContent='Loading official NOAA data…';showMessage('');makeLegend();if(weatherLayer){map.removeLayer(weatherLayer);weatherLayer=null}if(labelsLayer){map.removeLayer(labelsLayer);labelsLayer=null}const url=`${BASE}/${lid}/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson&_=${Date.now()}`;try{const res=await fetch(url,{signal,cache:'no-store'});if(!res.ok)throw Error('NOAA service returned HTTP '+res.status);const json=await res.json();if(myId!==requestId)return;if(json.error)throw Error(json.error.message||'NOAA service error');if(!Array.isArray(json.features))throw Error('Unexpected response from NOAA');const features=json.features.filter(f=>f&&f.geometry&&f.properties);const dates=features.map(f=>f.properties?.issue||f.properties?.valid||f.properties?.idp_filedate).filter(Boolean);let t=dates[0];const formatDate=v=>{if(v==null)return'';if(typeof v==='number'){let d=new Date(v);return Number.isNaN(d.getTime())?'':d.toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+' UTC'}let ms=Date.parse(v);return Number.isNaN(ms)?String(v):new Date(ms).toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+' UTC'};
+async function load({autoFit=true}={}){let myId=++requestId;if(activeController)activeController.abort();activeController=new AbortController();const signal=activeController.signal;const lid=LAYERS[day][type];$('title').textContent=`DAY ${day} ${TYPES[type]} OUTLOOK`;$('eyebrow').textContent='GLOBAL WEATHER CENTER  /  STORM PREDICTION CENTER';$('issue').textContent='Loading official NOAA data…';showMessage('');makeLegend();if(weatherLayer){map.removeLayer(weatherLayer);weatherLayer=null}if(labelsLayer){map.removeLayer(labelsLayer);labelsLayer=null}const url=`${BASE}/${lid}/query?where=1%3D1&outFields=*&returnGeometry=true&outSR=4326&f=geojson&_=${Date.now()}`;try{const res=await fetch(url,{signal,cache:'no-store'});if(!res.ok)throw Error('NOAA service returned HTTP '+res.status);const json=await res.json();if(myId!==requestId)return;if(json.error)throw Error(json.error.message||'NOAA service error');if(!Array.isArray(json.features))throw Error('Unexpected response from NOAA');const features=json.features.filter(f=>f&&f.geometry&&f.properties);const dates=features.map(f=>f.properties?.issue||f.properties?.valid||f.properties?.idp_filedate).filter(Boolean);let t=dates[0];const formatDate=v=>{if(v==null)return'';if(typeof v==='number'){let d=new Date(v);return Number.isNaN(d.getTime())?'':d.toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+' UTC'}let ms=Date.parse(v);return Number.isNaN(ms)?String(v):new Date(ms).toLocaleString('en-US',{timeZone:'UTC',month:'short',day:'numeric',year:'numeric',hour:'2-digit',minute:'2-digit',hour12:false})+' UTC'};
 $('issue').textContent='NOAA / SPC'+(t?'  •  '+formatDate(t):'  •  Current published outlook')+'  •  Retrieved '+new Date().toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit'})+' local';
-if(features.length===0){lastFeatures=[];defaultView();renderLabels();return}
+if(features.length===0){lastFeatures=[];if(autoFit)defaultView();renderLabels();return}
 const sorted=[...features].sort((a,b)=>featureRisk(a)-featureRisk(b));weatherLayer=L.geoJSON({type:'FeatureCollection',features:sorted},{style:f=>({color:color(featureRisk(f)),weight:1.7,opacity:1,fillColor:color(featureRisk(f)),fillOpacity:.78}),interactive:false}).addTo(map);
 // Zoom only to a meaningful, land-based threat; otherwise default to the US.
-zoomToRisk(features);
+if(autoFit)zoomToRisk(features);
 lastFeatures=features;renderLabels();
-}catch(err){if(signal.aborted||myId!==requestId)return;$('issue').textContent='Unable to load live NOAA data';lastFeatures=[];defaultView();renderLabels();showMessage('Official SPC map data could not be loaded. Check your connection or try Refresh. No forecast shapes are displayed rather than showing made-up risks. '+err.message)}}
-$('refresh').onclick=load;nav();load();setInterval(()=>{if(document.visibilityState==='visible')load()},10*60*1000);
+}catch(err){if(signal.aborted||myId!==requestId)return;$('issue').textContent='Unable to load live NOAA data';lastFeatures=[];if(autoFit)defaultView();renderLabels();showMessage('Official SPC map data could not be loaded. Check your connection or try Refresh. No forecast shapes are displayed rather than showing made-up risks. '+err.message)}}
+$('refresh').onclick=()=>load({autoFit:false});nav();load();setInterval(()=>{if(document.visibilityState==='visible')load({autoFit:false})},10*60*1000);
