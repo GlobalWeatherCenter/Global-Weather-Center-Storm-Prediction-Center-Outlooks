@@ -16,33 +16,45 @@ function defaultView(){map.stop();map.fitBounds(US_BOUNDS,{animate:false,padding
 let labelSvg;
 function renderLabels(){
  if(!labelSvg)return;
- const w=map.getSize().x,h=map.getSize().y;
+ const {x:w,y:h}=map.getSize();
+ if(!w||!h)return;
  labelSvg.setAttribute('viewBox',`0 0 ${w} ${h}`);
  labelSvg.replaceChildren();
- const NS='http://www.w3.org/2000/svg';
- const el=(tag,attrs,parent=labelSvg)=>{let n=document.createElementNS(NS,tag);for(let [k,v] of Object.entries(attrs))n.setAttribute(k,v);parent.appendChild(n);return n};
- const shadow={'paint-order':'stroke','stroke':'#050912','stroke-width':'5','stroke-linejoin':'round'};
+ const ns='http://www.w3.org/2000/svg';
+ const el=(tag,attrs)=>{const n=document.createElementNS(ns,tag);for(const [k,v] of Object.entries(attrs))n.setAttribute(k,v);labelSvg.appendChild(n);return n};
+ const z=map.getZoom(), wide=z<5, cityFont=wide?15:Math.min(23,17+(z-5)*2), stateFont=wide?19:23;
  const occupied=[];
- const overlap=(x,y,width,height)=>occupied.some(r=>Math.abs(r.x-x)<(r.w+width)/2+7&&Math.abs(r.y-y)<(r.h+height)/2+5);
- for(let [abbr,lat,lon] of STATES){
-  const q=map.latLngToContainerPoint([lat,lon]);if(q.x<20||q.x>w-20||q.y<85||q.y>h-90)continue;
-  if(map.getZoom()<4.5&&['RI','CT','NJ','DE','MD','MA','NH','VT','WV'].includes(abbr))continue;
-  el('text',{x:q.x,y:q.y,'text-anchor':'middle','dominant-baseline':'middle',fill:'#dce5f0','font-size':map.getZoom()<4.5?'19':'24','font-family':'Arial, sans-serif','font-weight':'900',...shadow}).textContent=abbr;
-  occupied.push({x:q.x,y:q.y,w:38,h:27});
+ const collides=(x,y,ww,hh)=>occupied.some(r=>x<r.x+r.w+4&&x+ww>r.x-4&&y<r.y+r.h+4&&y+hh>r.y-4);
+ const keep=(x,y,ww,hh)=>occupied.push({x,y,w:ww,h:hh});
+ const outline={'paint-order':'stroke fill',stroke:'#02050a','stroke-width':'4.5','stroke-linejoin':'round'};
+ // City text is on top, and is laid out BEFORE state abbreviations.
+ // At national scale keep larger cities; zooming in reveals additional local cities.
+ const minPriority=z<4.4?9:z<5.15?8:z<5.8?7:6;
+ const candidates=CITIES.filter(c=>c[3]>=minPriority).map(c=>({c,p:map.latLngToContainerPoint([c[1],c[2]])})).filter(o=>o.p.x>=12&&o.p.x<w-12&&o.p.y>=104&&o.p.y<h-86);
+ candidates.sort((a,b)=>b.c[3]-a.c[3]||a.c[0].localeCompare(b.c[0]));
+ for(const {c,p} of candidates){
+  const label=c[0],tw=label.length*cityFont*.59;
+  // Right-side labels normally; flip to left when approaching the right edge.
+  const left=p.x+tw+18>w-12,tx=left?p.x-11:p.x+10;
+  const x=left?tx-tw:tx,y=p.y-cityFont*.58;
+  if(x<4||x+tw>w-4||collides(x-7,y-5,tw+16,cityFont+12))continue;
+  el('circle',{cx:p.x,cy:p.y,r:3.7,fill:'#fff',stroke:'#02050a','stroke-width':'1.5'});
+  el('text',{x:tx,y:p.y+1,'text-anchor':left?'end':'start','dominant-baseline':'middle',fill:'#fff','font-size':cityFont,'font-family':'Arial, sans-serif','font-weight':'800',...outline}).textContent=label;
+  keep(x-7,y-5,tw+16,cityFont+12);
  }
- const visible=CITIES.map(c=>({c,p:map.latLngToContainerPoint([c[1],c[2]])})).filter(o=>o.p.x>20&&o.p.x<w-30&&o.p.y>105&&o.p.y<h-105);
- visible.sort((a,b)=>b.c[3]-a.c[3]);
- const font=map.getZoom()<4.5?16:20;let count=0;
- for(let {c,p} of visible){
-  const width=c[0].length*font*.56+14,x=p.x+width/2+9;
-  if(p.x+width>w-12||overlap(x,p.y,width,24))continue;
-  el('circle',{cx:p.x,cy:p.y,r:3.7,fill:'#fff',stroke:'#080e16','stroke-width':1.5});
-  el('text',{x:p.x+9,y:p.y+1,'dominant-baseline':'middle',fill:'#fff','font-size':font,'font-family':'Arial, sans-serif','font-weight':'800',...shadow}).textContent=c[0];
-  occupied.push({x,y:p.y,w:width,h:25});
-  if(++count>= (map.getZoom()<4.5?35:75))break;
+ // Two-letter state codes stay present at all zoom levels. Never place
+ // them over city names, avoiding the all-labels-disappear issue.
+ for(const [abbr,lat,lon] of STATES){
+  const p=map.latLngToContainerPoint([lat,lon]);
+  if(p.x<24||p.x>w-24||p.y<105||p.y>h-86)continue;
+  if(wide&&['RI','CT','NJ','DE','MD','MA','NH','VT'].includes(abbr))continue;
+  const sw=stateFont*1.7,sh=stateFont*1.35,x=p.x-sw/2,y=p.y-sh/2;
+  if(collides(x,y,sw,sh))continue;
+  el('text',{x:p.x,y:p.y,'text-anchor':'middle','dominant-baseline':'middle',fill:'#d3dfed','font-size':stateFont,'font-family':'Arial, sans-serif','font-weight':'900',opacity:'.86',...outline}).textContent=abbr;
+  keep(x,y,sw,sh);
  }
- const stats=$('label-count');if(stats)stats.textContent=`${STATES.length} states · ${count} cities available`;
 }
+
 const $=id=>document.getElementById(id);
 const map=L.map('map',{zoomControl:false,attributionControl:true,preferCanvas:true,minZoom:3,maxZoom:11,zoomSnap:.25,worldCopyJump:false}).fitBounds(US_BOUNDS);
 L.control.zoom({position:'topright'}).addTo(map);
@@ -54,7 +66,8 @@ fetch('https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geo
  .then(r=>{if(!r.ok)throw Error('State outline download failed');return r.json()})
  .then(j=>L.geoJSON(j,{style:{color:'#d0d8e4',weight:1.1,opacity:.78,fillOpacity:0},interactive:false}).addTo(map))
  .catch(()=>{});
-map.on('moveend zoomend resize',renderLabels);
+map.on('move zoom resize',renderLabels);
+window.addEventListener('resize',()=>{map.invalidateSize();renderLabels()});
 map.whenReady(()=>{map.invalidateSize();renderLabels()});
 function nav(){ $('days').innerHTML='';for(let d=1;d<=8;d++){let b=document.createElement('button');b.textContent='DAY '+d;b.className=d===day?'active':'';b.setAttribute('aria-pressed',d===day);b.onclick=()=>{day=d;type=LAYERS[d][type]?'cat' in LAYERS[d]?'cat':'prob':d<=3?'cat':'prob';nav();load()};$('days').append(b)}$('hazards').innerHTML='';for(const [key,txt] of Object.entries(TYPES)){const b=document.createElement('button');b.textContent=txt;b.disabled=!LAYERS[day][key];b.className=key===type?'active':'';b.setAttribute('aria-pressed',key===type);b.onclick=()=>{type=key;nav();load()};$('hazards').append(b)}}
 function palette(){return type==='cat'?CATEGORY:PROB}

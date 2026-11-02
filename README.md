@@ -1,12 +1,15 @@
-# Global Weather Center — Rebuild V4
+# Global Weather Center — SPC Outlooks V5
 
-Complete GitHub Pages site. Upload all four files to your repository root (replace old files).
+Static website for GitHub Pages. Uses official NOAA SPC outlook polygons.
 
-## Fixed
-- State and city labels now use a separate SVG layer ABOVE the forecast polygons, not Leaflet marker panes.
-- State labels are two-letter abbreviations, 19–24 px; city labels 16–20 px with black stroke.
-- Zoom computes bounding regions from the highest relevant SPC risk, with bounds checks.
-- Defaults to contiguous USA for outlooks with no severe risk. No extra no-risk message.
-- Official NOAA FeatureServer data retained. No API key.
+## Update V5
 
-The label layer is local; NOAA SPC forecast requires live internet. Browser appearance cannot be verified from this offline environment.
+- City labels placed before two-letter state codes so state text cannot crowd out cities.
+- National/zoomed-out map prioritises major cities, while smaller cities appear on zoom in.
+- Large, high-contrast city names with dark outlined text and two-letter state abbreviations.
+- Keeps existing SPC outlook controls, basemap, zoom and default USA behaviour.
+
+## Publish
+Upload `index.html`, `style.css`, `app.js` and `README.md` to the root of the **same repository currently hosting the website**. Enable GitHub Pages from the `main` branch root. Look for **GWC LABELS V5** at the bottom to confirm the deployed version.
+
+Requires internet access to load NOAA service, state outlines, and Leaflet.
