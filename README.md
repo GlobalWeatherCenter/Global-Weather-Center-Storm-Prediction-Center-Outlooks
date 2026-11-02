@@ -1,7 +1,3 @@
-# Global Weather Center — Geographic Labels V6
+Global Weather Center — Tornado Legend V7
 
-Live NOAA SPC outlook viewer. Fixes: city and state labels are Leaflet georeferenced markers so they follow the map during pinch/pan/zoom; controls no longer trigger a second pan after zoom; background refresh does not reset user-chosen map views.
-
-Upload all four files to the root of your existing GitHub Pages repository. Do not upload the ZIP itself.
-
-**Version marker:** GWC GEOGRAPHIC LABELS V6.
+Based on geographic-label V6. Tornado (Day 1/2) colours and map shading now match the NOAA SPC published ArcGIS renderer: 2 green, 5 brown, 10 pale yellow, 15 light red, 30 pink, 45 lavender, 60 navy blue. No change to city labels, zoom logic, or other risk legends. The official SPC forecast is the source of truth.
